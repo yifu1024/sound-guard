@@ -4,6 +4,8 @@
 
 软件内置了一个默认提醒音频：`assets/default_alert.wav`。如果不手动选择音频，启动后会自动使用它。
 
+![噪音反击系统界面预览](assets/screenshot.png)
+
 ## 运行
 
 ```bash
