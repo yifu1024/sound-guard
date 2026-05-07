@@ -1,4 +1,5 @@
 # 噪音反击系统
+<img width="1960" height="1736" alt="image" src="https://github.com/user-attachments/assets/0c54fddf-2279-4e5a-9918-3f6fae825b1c" />
 
 一个 macOS 桌面小工具：选择麦克风、选择反击音频，开始监听后先校准房间底噪，再根据“高于底噪的分贝差、突变强度、低频占比和综合评分”判断噪声冲击。连续达到设定次数后播放反击音频，并进入冷却时间。
 
