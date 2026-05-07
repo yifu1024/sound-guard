@@ -1,0 +1,4 @@
+numpy>=1.26
+PySide6>=6.8
+sounddevice>=0.4.7
+soundfile>=0.12.1
