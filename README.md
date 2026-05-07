@@ -14,7 +14,7 @@ chmod +x run.sh
 也可以在 Finder 里双击 `启动噪音反击系统.command`。
 
 首次运行 macOS 可能会请求麦克风权限。若没有弹出权限提示，可以到“系统设置 -> 隐私与安全性 -> 麦克风”里允许终端或 Python。
-<img width="196" height="173" alt="image" src="https://github.com/user-attachments/assets/0c54fddf-2279-4e5a-9918-3f6fae825b1c" />
+<img width="980" height="865" alt="image" src="https://github.com/user-attachments/assets/0c54fddf-2279-4e5a-9918-3f6fae825b1c" />
 
 ## 参数说明
 
