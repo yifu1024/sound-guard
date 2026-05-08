@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QCheckBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -43,6 +44,8 @@ DEFAULT_REQUIRED_ABOVE_DB = 27.0
 DEFAULT_LOW_RATIO_PERCENT = 23
 DEFAULT_HIGH_RATIO_PERCENT = 42
 DEFAULT_STABLE_BLOCKS = 3
+DEFAULT_MANUAL_FLOOR_DB = -55.0
+DEFAULT_ABSOLUTE_TRIGGER_DB = -35.0
 DEFAULT_AUDIO_PATH = Path(__file__).resolve().parent / "assets" / "default_alert.wav"
 
 
@@ -191,6 +194,23 @@ class CounterNoiseWindow(QMainWindow):
         param_grid.setColumnStretch(2, 1)
         left.addWidget(param_box)
 
+        self.floor_mode_combo = QComboBox()
+        self.floor_mode_combo.addItems(["自动监听底噪", "手动底噪", "直接门槛"])
+        self.floor_mode_combo.currentTextChanged.connect(self._sync_floor_controls)
+        self.manual_floor_spin = self._make_db_spin(DEFAULT_MANUAL_FLOOR_DB)
+        self.absolute_trigger_spin = self._make_db_spin(DEFAULT_ABSOLUTE_TRIGGER_DB)
+        floor_box, floor_grid = self._section_grid()
+        floor_grid.addWidget(self._group_title("底噪控制"), 0, 0, 1, 4)
+        floor_grid.addWidget(QLabel("模式"), 1, 0)
+        floor_grid.addWidget(self.floor_mode_combo, 1, 1, 1, 3)
+        floor_grid.addWidget(QLabel("手动底噪"), 2, 0)
+        floor_grid.addWidget(self.manual_floor_spin, 2, 1)
+        floor_grid.addWidget(QLabel("直接门槛"), 2, 2)
+        floor_grid.addWidget(self.absolute_trigger_spin, 2, 3)
+        floor_grid.setColumnStretch(1, 1)
+        floor_grid.setColumnStretch(3, 1)
+        left.addWidget(floor_box)
+
         self.above_db_slider, self.above_db_value = self._make_slider(12, 45, round(DEFAULT_REQUIRED_ABOVE_DB))
         self.low_ratio_slider, self.low_ratio_value = self._make_slider(5, 60, DEFAULT_LOW_RATIO_PERCENT)
         self.high_ratio_slider, self.high_ratio_value = self._make_slider(10, 80, DEFAULT_HIGH_RATIO_PERCENT)
@@ -273,6 +293,7 @@ class CounterNoiseWindow(QMainWindow):
 
         self._apply_style()
         self._sync_labels()
+        self._sync_floor_controls()
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -392,6 +413,16 @@ class CounterNoiseWindow(QMainWindow):
         slider.valueChanged.connect(self._sync_labels)
         return slider, value_label
 
+    def _make_db_spin(self, value: float) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(-100.0, 0.0)
+        spin.setDecimals(1)
+        spin.setSingleStep(1.0)
+        spin.setSuffix(" dB")
+        spin.setValue(value)
+        spin.valueChanged.connect(self._on_floor_value_changed)
+        return spin
+
     def _add_slider_row(
         self,
         layout: QGridLayout,
@@ -428,10 +459,30 @@ class CounterNoiseWindow(QMainWindow):
         self.stable_blocks_value.setText(f"{self.stable_blocks_slider.value()}块")
         self.trigger_label.setText(f"{len(self.event_times)}/{self.confirm_slider.value()}")
 
+    def _sync_floor_controls(self) -> None:
+        mode = self.floor_mode_combo.currentText()
+        self.manual_floor_spin.setEnabled(mode == "手动底噪")
+        self.absolute_trigger_spin.setEnabled(mode == "直接门槛")
+        if mode == "手动底噪":
+            self.noise_floor_db = float(self.manual_floor_spin.value())
+            self.calibration_values.clear()
+        elif mode == "直接门槛":
+            self.calibration_values.clear()
+        self._update_ui()
+
+    def _on_floor_value_changed(self) -> None:
+        if self.floor_mode_combo.currentText() == "手动底噪":
+            self.noise_floor_db = float(self.manual_floor_spin.value())
+        self._update_ui()
+
     def _begin_calibration(self) -> None:
         if not self.running:
             self.status_label.setText("请先开始监听，再校准底噪")
             self._log("校准需要先开始监听")
+            return
+        if self.floor_mode_combo.currentText() != "自动监听底噪":
+            self.status_label.setText("当前不是自动底噪模式")
+            self._log("手动底噪/直接门槛模式不需要校准")
             return
         self.calibration_values.clear()
         self.event_times.clear()
@@ -518,8 +569,16 @@ class CounterNoiseWindow(QMainWindow):
         self.last_fire_at = 0.0
         self.previous_spectrum = None
         self.clear_block_counts.clear()
-        self._begin_calibration()
-        self._log("开始监听，先自动校准底噪")
+        if self.floor_mode_combo.currentText() == "自动监听底噪":
+            self._begin_calibration()
+            self._log("开始监听，先自动校准底噪")
+        elif self.floor_mode_combo.currentText() == "手动底噪":
+            self.noise_floor_db = float(self.manual_floor_spin.value())
+            self.status_label.setText("监听中")
+            self._log(f"开始监听，使用手动底噪 {self.noise_floor_db:.1f} dB")
+        else:
+            self.status_label.setText("监听中")
+            self._log(f"开始监听，使用直接门槛 {self.absolute_trigger_spin.value():.1f} dB")
 
         try:
             self.stream = sd.InputStream(
@@ -588,7 +647,8 @@ class CounterNoiseWindow(QMainWindow):
         scream = self._band_energy(spectrum, freqs, 1_500, 6_000)
         rms = float(np.sqrt(np.mean(samples * samples)))
         rms_db = 20 * math.log10(max(rms, 1e-7))
-        above_db = max(0.0, rms_db - self.noise_floor_db)
+        floor_db = self._analysis_floor_db()
+        above_db = max(0.0, rms_db - floor_db)
         signal_gate = self._ramp(above_db, 4.0, 18.0)
         centroid_hz = float(np.sum(freqs * spectrum) / total)
         zcr = self._zero_crossing_rate(samples)
@@ -702,7 +762,18 @@ class CounterNoiseWindow(QMainWindow):
     def _clamp01(self, value: float) -> float:
         return max(0.0, min(1.0, value))
 
+    def _analysis_floor_db(self) -> float:
+        mode = self.floor_mode_combo.currentText()
+        if mode == "手动底噪":
+            return float(self.manual_floor_spin.value())
+        if mode == "直接门槛":
+            return float(self.absolute_trigger_spin.value()) - self.above_db_slider.value()
+        return self.noise_floor_db
+
     def _handle_calibration(self, metrics: NoiseMetrics) -> bool:
+        if self.floor_mode_combo.currentText() != "自动监听底噪":
+            return True
+
         now = time.monotonic()
         if now < self.calibrating_until:
             self.calibration_values.append(metrics.rms_db)
@@ -765,10 +836,13 @@ class CounterNoiseWindow(QMainWindow):
         return targets
 
     def _log_detection(self, target: str, metrics: NoiseMetrics) -> None:
+        if self.floor_mode_combo.currentText() == "直接门槛":
+            level_text = f"当前 {metrics.rms_db:.1f} dB，门槛 {self._absolute_gate_db():.1f} dB"
+        else:
+            level_text = f"高于底噪 {metrics.rms_db - self.noise_floor_db:.1f} dB"
         self._log(
-            f"确认一次{target}: 高于底噪 {metrics.rms_db - self.noise_floor_db:.1f} dB，"
-            f"低频 {metrics.low_ratio_raw:.2f}，人声 {metrics.voice_ratio_raw:.2f}，"
-            f"尖叫 {metrics.scream_ratio_raw:.2f}"
+            f"确认一次{target}: {level_text}，低频 {metrics.low_ratio_raw:.2f}，"
+            f"人声 {metrics.voice_ratio_raw:.2f}，尖叫 {metrics.scream_ratio_raw:.2f}"
         )
 
     def _matches_target(self, target: str, metrics: NoiseMetrics, sensitivity: int) -> bool:
@@ -782,7 +856,7 @@ class CounterNoiseWindow(QMainWindow):
             voice_above_db = max(10.0, required_above_db - 12.0)
             voice_threshold = max(0.50, threshold - 0.10)
             return (
-                above_db >= voice_above_db
+                self._passes_level_gate(metrics, voice_above_db, sensitivity)
                 and metrics.voice_score >= voice_threshold
                 and metrics.harmonicity >= 0.18
                 and 0.012 <= metrics.zcr <= 0.20
@@ -794,7 +868,7 @@ class CounterNoiseWindow(QMainWindow):
             scream_above_db = max(14.0, required_above_db - 8.0)
             scream_threshold = max(0.54, threshold - 0.08)
             return (
-                above_db >= scream_above_db
+                self._passes_level_gate(metrics, scream_above_db, sensitivity)
                 and metrics.scream_score >= scream_threshold
                 and metrics.scream_ratio_raw >= max(0.30, 0.52 - sensitivity * 0.018)
                 and metrics.centroid_hz >= 1_300
@@ -805,12 +879,22 @@ class CounterNoiseWindow(QMainWindow):
 
         low_threshold = max(0.56, threshold - 0.04)
         return (
-            above_db >= required_above_db
+            self._passes_level_gate(metrics, required_above_db, sensitivity)
             and metrics.impact >= 0.42
             and metrics.low_score >= low_threshold
             and metrics.low_ratio_raw >= required_low_ratio
             and metrics.high_ratio_raw <= allowed_high_ratio
         )
+
+    def _passes_level_gate(self, metrics: NoiseMetrics, required_above_db: float, sensitivity: int) -> bool:
+        if self.floor_mode_combo.currentText() == "直接门槛":
+            return metrics.rms_db >= self._absolute_gate_db(sensitivity)
+        return metrics.rms_db - self.noise_floor_db >= required_above_db
+
+    def _absolute_gate_db(self, sensitivity: int | None = None) -> float:
+        if sensitivity is None:
+            sensitivity = self.sensitivity_slider.value()
+        return float(self.absolute_trigger_spin.value()) - (sensitivity - 2) * 0.6
 
     def _play_audio(self) -> None:
         if self.audio_path is None:
@@ -836,7 +920,7 @@ class CounterNoiseWindow(QMainWindow):
         self.scream_ratio_bar.setValue(round(self.metrics.scream_ratio * 1000))
         self.impact_bar.setValue(round(self.metrics.impact * 1000))
         self.score_bar.setValue(round(self._current_target_score() * 1000))
-        self.floor_label.setText(f"底噪: {self.noise_floor_db:.1f} dB    当前: {self.metrics.rms_db:.1f} dB")
+        self.floor_label.setText(self._level_status_text())
         self.trigger_label.setText(f"{len(self.event_times)}/{self.confirm_slider.value()}")
 
         if self.running:
@@ -865,7 +949,17 @@ class CounterNoiseWindow(QMainWindow):
         return max(scores, default=0.0)
 
     def _display_signal_gate(self) -> float:
+        if self.floor_mode_combo.currentText() == "直接门槛":
+            return self._ramp(self.metrics.rms_db - self._absolute_gate_db(), -8.0, 6.0)
         return self._ramp(self.metrics.rms_db - self.noise_floor_db, 4.0, 18.0)
+
+    def _level_status_text(self) -> str:
+        mode = self.floor_mode_combo.currentText()
+        if mode == "直接门槛":
+            return f"模式: 直接门槛    门槛: {self._absolute_gate_db():.1f} dB    当前: {self.metrics.rms_db:.1f} dB"
+        if mode == "手动底噪":
+            return f"模式: 手动底噪    底噪: {self.noise_floor_db:.1f} dB    当前: {self.metrics.rms_db:.1f} dB"
+        return f"模式: 自动底噪    底噪: {self.noise_floor_db:.1f} dB    当前: {self.metrics.rms_db:.1f} dB"
 
     def _log(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
