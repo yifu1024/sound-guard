@@ -114,7 +114,7 @@ class CounterNoiseWindow(QMainWindow):
 
         title = QLabel(APP_TITLE)
         title.setFont(QFont("Arial", 20, QFont.Bold))
-        subtitle = QLabel("选好要监听的声音和严格程度，点击开始即可。复杂参数在专家设置里。")
+        subtitle = QLabel("先选设备和音频，再开始监听；需要微调时只看左侧规则。")
         subtitle.setObjectName("subtitle")
         header = QVBoxLayout()
         header.setSpacing(2)
@@ -207,33 +207,39 @@ class CounterNoiseWindow(QMainWindow):
         basic_grid.setVerticalSpacing(10)
         basic_grid.addWidget(self._option_label("监听目标"), 0, 0)
         basic_grid.addWidget(target_box, 0, 1, 1, 4)
-        self._add_slider_row(basic_grid, 1, "严格程度", "宽松", self.sensitivity_slider, "严格", self.sensitivity_value)
+        self._add_slider_row(basic_grid, 1, "灵敏度", "保守", self.sensitivity_slider, "敏感", self.sensitivity_value)
+        self._add_slider_row(basic_grid, 2, "确认次数", "", self.confirm_slider, "", self.confirm_value)
+        self._add_slider_row(basic_grid, 3, "冷却时间", "", self.cooldown_slider, "", self.cooldown_value)
         basic_grid.setColumnStretch(2, 1)
 
-        expert_tab = QWidget()
-        expert_grid = QGridLayout(expert_tab)
-        expert_grid.setContentsMargins(12, 12, 12, 12)
-        expert_grid.setHorizontalSpacing(12)
-        expert_grid.setVerticalSpacing(10)
-        expert_grid.addWidget(self._group_title("触发节奏"), 0, 0, 1, 5)
-        self._add_slider_row(expert_grid, 1, "确认次数", "", self.confirm_slider, "", self.confirm_value)
-        self._add_slider_row(expert_grid, 2, "冷却时间", "", self.cooldown_slider, "", self.cooldown_value)
-        expert_grid.addWidget(self._group_title("底噪"), 3, 0, 1, 5)
-        expert_grid.addWidget(self._option_label("模式"), 4, 0)
-        expert_grid.addWidget(self.floor_mode_combo, 4, 1, 1, 4)
-        expert_grid.addWidget(self._option_label("手动底噪"), 5, 0)
-        expert_grid.addWidget(self.manual_floor_spin, 5, 1)
-        expert_grid.addWidget(self._option_label("直接门槛"), 5, 2)
-        expert_grid.addWidget(self.absolute_trigger_spin, 5, 3, 1, 2)
-        expert_grid.addWidget(self._group_title("判定规则"), 6, 0, 1, 5)
-        self._add_slider_row(expert_grid, 7, "分贝门槛", "低", self.above_db_slider, "高", self.above_db_value)
-        self._add_slider_row(expert_grid, 8, "低频下限", "低", self.low_ratio_slider, "高", self.low_ratio_value)
-        self._add_slider_row(expert_grid, 9, "高频上限", "少", self.high_ratio_slider, "多", self.high_ratio_value)
-        self._add_slider_row(expert_grid, 10, "连续块数", "短", self.stable_blocks_slider, "长", self.stable_blocks_value)
-        expert_grid.setColumnStretch(2, 1)
+        floor_tab = QWidget()
+        floor_grid = QGridLayout(floor_tab)
+        floor_grid.setContentsMargins(12, 12, 12, 12)
+        floor_grid.setHorizontalSpacing(12)
+        floor_grid.setVerticalSpacing(10)
+        floor_grid.addWidget(self._option_label("模式"), 0, 0)
+        floor_grid.addWidget(self.floor_mode_combo, 0, 1, 1, 3)
+        floor_grid.addWidget(self._option_label("手动底噪"), 1, 0)
+        floor_grid.addWidget(self.manual_floor_spin, 1, 1)
+        floor_grid.addWidget(self._option_label("直接门槛"), 1, 2)
+        floor_grid.addWidget(self.absolute_trigger_spin, 1, 3)
+        floor_grid.setColumnStretch(1, 1)
+        floor_grid.setColumnStretch(3, 1)
 
-        config_tabs.addTab(basic_tab, "保护设置")
-        config_tabs.addTab(expert_tab, "专家设置")
+        advanced_tab = QWidget()
+        advanced_grid = QGridLayout(advanced_tab)
+        advanced_grid.setContentsMargins(12, 12, 12, 12)
+        advanced_grid.setHorizontalSpacing(12)
+        advanced_grid.setVerticalSpacing(10)
+        self._add_slider_row(advanced_grid, 0, "分贝门槛", "低", self.above_db_slider, "高", self.above_db_value)
+        self._add_slider_row(advanced_grid, 1, "低频下限", "低", self.low_ratio_slider, "高", self.low_ratio_value)
+        self._add_slider_row(advanced_grid, 2, "高频上限", "少", self.high_ratio_slider, "多", self.high_ratio_value)
+        self._add_slider_row(advanced_grid, 3, "连续块数", "短", self.stable_blocks_slider, "长", self.stable_blocks_value)
+        advanced_grid.setColumnStretch(2, 1)
+
+        config_tabs.addTab(basic_tab, "基础")
+        config_tabs.addTab(floor_tab, "底噪")
+        config_tabs.addTab(advanced_tab, "高级")
         left.addWidget(config_tabs, 1)
 
         controls = QHBoxLayout()
@@ -267,10 +273,14 @@ class CounterNoiseWindow(QMainWindow):
         status_box, status_grid = self._section_grid()
         status_grid.addWidget(self._group_title("运行监控"), 0, 0, 1, 4)
         status_grid.addWidget(self.status_label, 1, 0, 1, 4)
-        self._add_metric_row(status_grid, 2, 0, "声音强度", self.above_floor_bar)
-        self._add_metric_row(status_grid, 3, 0, "目标匹配", self.score_bar)
-        self._add_metric_row(status_grid, 4, 0, "突变强度", self.impact_bar)
-        status_grid.addWidget(self.floor_label, 5, 0, 1, 4)
+        self._add_metric_row(status_grid, 2, 0, "超过底噪", self.above_floor_bar)
+        self._add_metric_row(status_grid, 3, 0, "低频占比", self.low_ratio_bar)
+        self._add_metric_row(status_grid, 4, 0, "高频占比", self.high_ratio_bar)
+        self._add_metric_row(status_grid, 5, 0, "人声占比", self.voice_ratio_bar)
+        self._add_metric_row(status_grid, 6, 0, "尖叫占比", self.scream_ratio_bar)
+        self._add_metric_row(status_grid, 7, 0, "突变强度", self.impact_bar)
+        self._add_metric_row(status_grid, 8, 0, "综合评分", self.score_bar)
+        status_grid.addWidget(self.floor_label, 9, 0, 1, 4)
         status_grid.setColumnStretch(1, 1)
         right.addWidget(status_box)
 
@@ -428,7 +438,6 @@ class CounterNoiseWindow(QMainWindow):
             "输入设备 (麦克风)": "选择用于监听环境声音的麦克风。外接麦克风通常比电脑内置麦克风更稳定。",
             "输出设备 (音箱)": "触发反击后，音频会从这里选择的音箱或扬声器播放。",
             "监听目标": "勾选要识别的声音类型，可同时监听低频冲击、人声和尖叫声。",
-            "严格程度": "越严格越不容易误触发，越宽松越容易响应。建议先用默认值，误触发就调高，漏触发就调低。",
             "灵敏度": "总调节旋钮。越高越容易触发，越低越保守；它会适度放宽音量和评分门槛。",
             "确认次数": "4 秒窗口内需要累计多少次有效命中才真正播放反击音频。",
             "冷却时间": "触发播放后暂停再次触发的秒数，用来避免连续播放。",
@@ -440,8 +449,6 @@ class CounterNoiseWindow(QMainWindow):
             "高频上限": "低频冲击判断中，高频能量最多允许的比例。越低越能过滤人声、键盘和尖锐杂音。",
             "连续块数": "连续多少个音频块满足规则才算一次确认。越高越稳，但反应更慢。",
             "超过底噪": "当前声音相对底噪或直接门槛的强度显示。安静时会被噪声门压低。",
-            "声音强度": "当前声音相对底噪或直接门槛的强度。越高说明声音越明显。",
-            "目标匹配": "当前声音和已勾选监听目标的匹配程度。越高越像要监听的声音。",
             "低频占比": "低频段能量占总能量的比例，常用于判断脚步、震动、低沉撞击。",
             "高频占比": "高频段能量占总能量的比例，过高时通常更像尖锐声、键盘声或嘈杂人声。",
             "人声占比": "人声相关频段和特征的强弱显示，不等同于 AI 人声识别概率。",
@@ -497,7 +504,7 @@ class CounterNoiseWindow(QMainWindow):
         self.low_target_check.setToolTip("识别脚步、震动、撞击、低沉噪声等低频冲击。")
         self.voice_target_check.setToolTip("识别说话、喊声等人声特征。当前是本地音频特征规则，不是 AI 模型。")
         self.scream_target_check.setToolTip("识别高能量、高频、尖锐的喊叫或尖叫声。")
-        self.sensitivity_slider.setToolTip(self._tooltip_for("严格程度"))
+        self.sensitivity_slider.setToolTip(self._tooltip_for("灵敏度"))
         self.confirm_slider.setToolTip(self._tooltip_for("确认次数"))
         self.cooldown_slider.setToolTip(self._tooltip_for("冷却时间"))
 
