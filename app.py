@@ -85,6 +85,7 @@ class CounterNoiseWindow(QMainWindow):
 
         self.metrics = NoiseMetrics()
         self.event_times: list[float] = []
+        self.event_details: list[tuple[float, str]] = []
         self.running = False
         self.started_at = 0.0
         self.last_fire_at = 0.0
@@ -596,6 +597,7 @@ class CounterNoiseWindow(QMainWindow):
             return
         self.calibration_values.clear()
         self.event_times.clear()
+        self.event_details.clear()
         self.previous_spectrum = None
         self.clear_block_counts.clear()
         self.calibrating_until = time.monotonic() + CALIBRATION_SECONDS
@@ -675,6 +677,7 @@ class CounterNoiseWindow(QMainWindow):
 
         self.running = True
         self.event_times.clear()
+        self.event_details.clear()
         self.started_at = time.monotonic()
         self.last_fire_at = 0.0
         self.previous_spectrum = None
@@ -715,6 +718,7 @@ class CounterNoiseWindow(QMainWindow):
             self.stream = None
         self.status_label.setText("已停止")
         self.event_times.clear()
+        self.event_details.clear()
         self.trigger_label.setText(f"0/{self.confirm_slider.value()}")
         self._log("已停止监听")
 
@@ -922,17 +926,25 @@ class CounterNoiseWindow(QMainWindow):
         if matched_target and not in_cooldown:
             if not self.event_times or now - self.event_times[-1] > 0.65:
                 self.event_times.append(now)
+                detail = self._detection_detail(matched_target, metrics, sensitivity)
+                self.event_details.append((now, detail))
                 self.clear_block_counts[matched_target] = 0
-                self._log_detection(matched_target, metrics)
+                self._log_detection(matched_target, detail)
 
         self.event_times = [item for item in self.event_times if now - item <= WINDOW_SECONDS]
+        self.event_details = [item for item in self.event_details if now - item[0] <= WINDOW_SECONDS]
         if len(self.event_times) >= self.confirm_slider.value() and not in_cooldown:
+            details = "；".join(detail for _, detail in self.event_details[-self.confirm_slider.value() :])
             self.event_times.clear()
+            self.event_details.clear()
             self.last_fire_at = now
             self.trigger_total += 1
             self.trigger_total_label.setText(str(self.trigger_total))
             self.status_label.setText("已触发 - 播放反击音频")
-            self._log("达到确认次数，播放反击音频")
+            self._log(
+                f"达到确认次数，播放反击音频: 确认 {self.confirm_slider.value()}次/{WINDOW_SECONDS:.0f}秒，"
+                f"连续块数 {self.stable_blocks_slider.value()}块，依据: {details}"
+            )
             threading.Thread(target=self._play_audio, daemon=True).start()
 
     def _selected_targets(self) -> list[str]:
@@ -945,15 +957,52 @@ class CounterNoiseWindow(QMainWindow):
             targets.append("尖叫声")
         return targets
 
-    def _log_detection(self, target: str, metrics: NoiseMetrics) -> None:
-        if self.floor_mode_combo.currentText() == "直接门槛":
-            level_text = f"当前 {metrics.rms_db:.1f} dB，门槛 {self._absolute_gate_db():.1f} dB"
-        else:
-            level_text = f"高于底噪 {metrics.rms_db - self.noise_floor_db:.1f} dB"
-        self._log(
-            f"确认一次{target}: {level_text}，低频 {metrics.low_ratio_raw:.2f}，"
-            f"人声 {metrics.voice_ratio_raw:.2f}，尖叫 {metrics.scream_ratio_raw:.2f}"
+    def _log_detection(self, target: str, detail: str) -> None:
+        self._log(f"确认一次{target}: {detail}")
+
+    def _detection_detail(self, target: str, metrics: NoiseMetrics, sensitivity: int) -> str:
+        required_above_db = self.above_db_slider.value() - (sensitivity - 2) * 0.6
+        allowed_high_ratio = self.high_ratio_slider.value() / 100.0
+        required_low_ratio = max(0.04, self.low_ratio_slider.value() / 100.0 - (sensitivity - 2) * 0.008)
+        threshold = 0.82 - sensitivity * 0.025
+        level_text = self._level_gate_detail(target, metrics, required_above_db, sensitivity)
+
+        if target == "人声":
+            voice_threshold = max(0.50, threshold - 0.10)
+            return (
+                f"目标=人声，{level_text}，人声评分 {metrics.voice_score:.2f}>={voice_threshold:.2f}，"
+                f"谐波 {metrics.harmonicity:.2f}>=0.18，过零率 {metrics.zcr:.3f}在0.012-0.200，"
+                f"低频 {metrics.low_ratio_raw:.0%}<=35%，高频 {metrics.high_ratio_raw:.0%}<={max(0.62, allowed_high_ratio):.0%}"
+            )
+
+        if target == "尖叫声":
+            scream_threshold = max(0.54, threshold - 0.08)
+            scream_ratio_threshold = max(0.30, 0.52 - sensitivity * 0.018)
+            return (
+                f"目标=尖叫声，{level_text}，尖叫评分 {metrics.scream_score:.2f}>={scream_threshold:.2f}，"
+                f"尖叫占比 {metrics.scream_ratio_raw:.0%}>={scream_ratio_threshold:.0%}，"
+                f"频谱重心 {metrics.centroid_hz:.0f}Hz>=1300Hz，高频 {metrics.high_ratio_raw:.0%}>=20%，"
+                f"低频 {metrics.low_ratio_raw:.0%}<=22%，突变 {metrics.impact:.2f}>=0.28"
+            )
+
+        low_threshold = max(0.56, threshold - 0.04)
+        return (
+            f"目标=低频冲击，{level_text}，低频评分 {metrics.low_score:.2f}>={low_threshold:.2f}，"
+            f"突变 {metrics.impact:.2f}>=0.42，低频 {metrics.low_ratio_raw:.0%}>={required_low_ratio:.0%}，"
+            f"高频 {metrics.high_ratio_raw:.0%}<={allowed_high_ratio:.0%}"
         )
+
+    def _level_gate_detail(self, target: str, metrics: NoiseMetrics, required_above_db: float, sensitivity: int) -> str:
+        if self.floor_mode_combo.currentText() == "直接门槛":
+            return f"音量 {metrics.rms_db:.1f}dB>=直接门槛 {self._absolute_gate_db(sensitivity):.1f}dB"
+
+        if target == "人声":
+            required = max(10.0, required_above_db - 12.0)
+        elif target == "尖叫声":
+            required = max(14.0, required_above_db - 8.0)
+        else:
+            required = required_above_db
+        return f"高于底噪 {metrics.rms_db - self.noise_floor_db:.1f}dB>={required:.1f}dB"
 
     def _matches_target(self, target: str, metrics: NoiseMetrics, sensitivity: int) -> bool:
         above_db = metrics.rms_db - self.noise_floor_db
