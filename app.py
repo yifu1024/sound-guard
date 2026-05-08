@@ -149,9 +149,9 @@ class CounterNoiseWindow(QMainWindow):
 
         device_box, device_grid = self._section_grid()
         device_grid.addWidget(self._group_title("设备"), 0, 0, 1, 3)
-        device_grid.addWidget(QLabel("输入设备 (麦克风)"), 1, 0)
+        device_grid.addWidget(self._option_label("输入设备 (麦克风)"), 1, 0)
         device_grid.addWidget(self.input_combo, 2, 0, 1, 3)
-        device_grid.addWidget(QLabel("输出设备 (音箱)"), 3, 0)
+        device_grid.addWidget(self._option_label("输出设备 (音箱)"), 3, 0)
         device_grid.addWidget(self.output_combo, 4, 0, 1, 3)
         device_grid.addWidget(self.refresh_button, 5, 0, 1, 3)
         device_grid.setColumnStretch(1, 1)
@@ -160,13 +160,13 @@ class CounterNoiseWindow(QMainWindow):
         default_file_name = self.audio_path.name if self.audio_path else "未选择音频"
         self.file_label = QLabel(default_file_name)
         self.file_label.setObjectName("fileName")
-        choose_button = QPushButton("选择文件")
-        choose_button.clicked.connect(self._choose_file)
+        self.choose_button = QPushButton("选择文件")
+        self.choose_button.clicked.connect(self._choose_file)
         file_box, file_layout = self._section_hbox()
         file_layout.setSpacing(10)
         file_layout.addWidget(self._group_title("反击音频"))
         file_layout.addWidget(self.file_label, 1)
-        file_layout.addWidget(choose_button)
+        file_layout.addWidget(self.choose_button)
         left.addWidget(file_box)
 
         self.low_target_check = QCheckBox("低频冲击")
@@ -204,7 +204,7 @@ class CounterNoiseWindow(QMainWindow):
         basic_grid.setContentsMargins(12, 12, 12, 12)
         basic_grid.setHorizontalSpacing(12)
         basic_grid.setVerticalSpacing(10)
-        basic_grid.addWidget(QLabel("监听目标"), 0, 0)
+        basic_grid.addWidget(self._option_label("监听目标"), 0, 0)
         basic_grid.addWidget(target_box, 0, 1, 1, 4)
         self._add_slider_row(basic_grid, 1, "灵敏度", "保守", self.sensitivity_slider, "敏感", self.sensitivity_value)
         self._add_slider_row(basic_grid, 2, "确认次数", "", self.confirm_slider, "", self.confirm_value)
@@ -216,11 +216,11 @@ class CounterNoiseWindow(QMainWindow):
         floor_grid.setContentsMargins(12, 12, 12, 12)
         floor_grid.setHorizontalSpacing(12)
         floor_grid.setVerticalSpacing(10)
-        floor_grid.addWidget(QLabel("模式"), 0, 0)
+        floor_grid.addWidget(self._option_label("模式"), 0, 0)
         floor_grid.addWidget(self.floor_mode_combo, 0, 1, 1, 3)
-        floor_grid.addWidget(QLabel("手动底噪"), 1, 0)
+        floor_grid.addWidget(self._option_label("手动底噪"), 1, 0)
         floor_grid.addWidget(self.manual_floor_spin, 1, 1)
-        floor_grid.addWidget(QLabel("直接门槛"), 1, 2)
+        floor_grid.addWidget(self._option_label("直接门槛"), 1, 2)
         floor_grid.addWidget(self.absolute_trigger_spin, 1, 3)
         floor_grid.setColumnStretch(1, 1)
         floor_grid.setColumnStretch(3, 1)
@@ -243,16 +243,16 @@ class CounterNoiseWindow(QMainWindow):
 
         controls = QHBoxLayout()
         controls.setSpacing(10)
-        start_button = QPushButton("▶ 开始监听")
-        calibrate_button = QPushButton("◎ 重新校准")
-        stop_button = QPushButton("■ 停止")
-        start_button.setObjectName("primaryButton")
-        start_button.clicked.connect(self._start)
-        calibrate_button.clicked.connect(self._begin_calibration)
-        stop_button.clicked.connect(self._stop)
-        controls.addWidget(start_button)
-        controls.addWidget(calibrate_button)
-        controls.addWidget(stop_button)
+        self.start_button = QPushButton("▶ 开始监听")
+        self.calibrate_button = QPushButton("◎ 重新校准")
+        self.stop_button = QPushButton("■ 停止")
+        self.start_button.setObjectName("primaryButton")
+        self.start_button.clicked.connect(self._start)
+        self.calibrate_button.clicked.connect(self._begin_calibration)
+        self.stop_button.clicked.connect(self._stop)
+        controls.addWidget(self.start_button)
+        controls.addWidget(self.calibrate_button)
+        controls.addWidget(self.stop_button)
         left.addLayout(controls)
 
         self.status_label = QLabel("就绪 - 选择音频文件后点击开始")
@@ -285,11 +285,11 @@ class CounterNoiseWindow(QMainWindow):
 
         stats_box, stats_grid = self._section_grid()
         stats_grid.addWidget(self._group_title("触发统计"), 0, 0, 1, 4)
-        stats_grid.addWidget(QLabel("冲击累积"), 1, 0)
+        stats_grid.addWidget(self._option_label("冲击累积"), 1, 0)
         stats_grid.addWidget(self.trigger_label, 1, 1)
-        stats_grid.addWidget(QLabel("触发次数"), 1, 2)
+        stats_grid.addWidget(self._option_label("触发次数"), 1, 2)
         stats_grid.addWidget(self.trigger_total_label, 1, 3)
-        stats_grid.addWidget(QLabel("运行时长"), 2, 0)
+        stats_grid.addWidget(self._option_label("运行时长"), 2, 0)
         stats_grid.addWidget(self.runtime_label, 2, 1, 1, 3)
         stats_grid.setColumnStretch(1, 1)
         stats_grid.setColumnStretch(3, 1)
@@ -308,6 +308,7 @@ class CounterNoiseWindow(QMainWindow):
         right.addWidget(log_box, 1)
 
         self._apply_style()
+        self._install_tooltips()
         self._sync_labels()
         self._sync_floor_controls()
 
@@ -424,6 +425,40 @@ class CounterNoiseWindow(QMainWindow):
         label.setObjectName("groupTitle")
         return label
 
+    def _option_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        tooltip = self._tooltip_for(text)
+        if tooltip:
+            label.setToolTip(tooltip)
+        return label
+
+    def _tooltip_for(self, text: str) -> str:
+        return {
+            "输入设备 (麦克风)": "选择用于监听环境声音的麦克风。外接麦克风通常比电脑内置麦克风更稳定。",
+            "输出设备 (音箱)": "触发反击后，音频会从这里选择的音箱或扬声器播放。",
+            "监听目标": "勾选要识别的声音类型，可同时监听低频冲击、人声和尖叫声。",
+            "灵敏度": "总调节旋钮。越高越容易触发，越低越保守；它会适度放宽音量和评分门槛。",
+            "确认次数": "4 秒窗口内需要累计多少次有效命中才真正播放反击音频。",
+            "冷却时间": "触发播放后暂停再次触发的秒数，用来避免连续播放。",
+            "模式": "选择音量基准的来源：自动校准底噪、手动输入底噪，或直接使用绝对触发门槛。",
+            "手动底噪": "手动底噪模式下使用的环境基准。dBFS 通常是负数，例如 -55 dB。",
+            "直接门槛": "直接门槛模式下使用的绝对音量门槛。当前音量达到该值后再判断目标特征。",
+            "分贝门槛": "自动/手动底噪模式下，当前声音需要比底噪高出多少 dB。越高越不容易触发。",
+            "低频下限": "低频冲击判断中，低频能量至少要占总能量的比例。越高越偏向脚步、震动、撞击。",
+            "高频上限": "低频冲击判断中，高频能量最多允许的比例。越低越能过滤人声、键盘和尖锐杂音。",
+            "连续块数": "连续多少个音频块满足规则才算一次确认。越高越稳，但反应更慢。",
+            "超过底噪": "当前声音相对底噪或直接门槛的强度显示。安静时会被噪声门压低。",
+            "低频占比": "低频段能量占总能量的比例，常用于判断脚步、震动、低沉撞击。",
+            "高频占比": "高频段能量占总能量的比例，过高时通常更像尖锐声、键盘声或嘈杂人声。",
+            "人声占比": "人声相关频段和特征的强弱显示，不等同于 AI 人声识别概率。",
+            "尖叫占比": "尖叫相关高频段和特征的强弱显示，不等同于 AI 分类概率。",
+            "突变强度": "声音是否突然出现或突然变大。稳定背景噪声通常突变强度较低。",
+            "综合评分": "当前已勾选监听目标中的最高评分。达到内部门槛后才会累计确认。",
+            "冲击累积": "当前 4 秒窗口内已经累计的有效确认次数。",
+            "触发次数": "本次运行期间已经播放反击音频的总次数。",
+            "运行时长": "从开始监听到现在经过的时间。",
+        }.get(text, "")
+
     def _section_grid(self) -> tuple[QFrame, QGridLayout]:
         frame = QFrame()
         frame.setObjectName("card")
@@ -458,6 +493,46 @@ class CounterNoiseWindow(QMainWindow):
         spin.valueChanged.connect(self._on_floor_value_changed)
         return spin
 
+    def _install_tooltips(self) -> None:
+        self.input_combo.setToolTip(self._tooltip_for("输入设备 (麦克风)"))
+        self.output_combo.setToolTip(self._tooltip_for("输出设备 (音箱)"))
+        self.refresh_button.setToolTip("重新扫描当前连接的输入和输出音频设备。")
+        self.file_label.setToolTip("当前反击音频文件。未手动选择时会使用内置 default_alert.wav。")
+        self.choose_button.setToolTip("选择触发后要播放的音频文件，支持 mp3、wav、flac 等常见格式。")
+
+        self.low_target_check.setToolTip("识别脚步、震动、撞击、低沉噪声等低频冲击。")
+        self.voice_target_check.setToolTip("识别说话、喊声等人声特征。当前是本地音频特征规则，不是 AI 模型。")
+        self.scream_target_check.setToolTip("识别高能量、高频、尖锐的喊叫或尖叫声。")
+        self.sensitivity_slider.setToolTip(self._tooltip_for("灵敏度"))
+        self.confirm_slider.setToolTip(self._tooltip_for("确认次数"))
+        self.cooldown_slider.setToolTip(self._tooltip_for("冷却时间"))
+
+        self.floor_mode_combo.setToolTip(self._tooltip_for("模式"))
+        self.manual_floor_spin.setToolTip(self._tooltip_for("手动底噪"))
+        self.absolute_trigger_spin.setToolTip(self._tooltip_for("直接门槛"))
+
+        self.above_db_slider.setToolTip(self._tooltip_for("分贝门槛"))
+        self.low_ratio_slider.setToolTip(self._tooltip_for("低频下限"))
+        self.high_ratio_slider.setToolTip(self._tooltip_for("高频上限"))
+        self.stable_blocks_slider.setToolTip(self._tooltip_for("连续块数"))
+
+        self.above_floor_bar.setToolTip(self._tooltip_for("超过底噪"))
+        self.low_ratio_bar.setToolTip(self._tooltip_for("低频占比"))
+        self.high_ratio_bar.setToolTip(self._tooltip_for("高频占比"))
+        self.voice_ratio_bar.setToolTip(self._tooltip_for("人声占比"))
+        self.scream_ratio_bar.setToolTip(self._tooltip_for("尖叫占比"))
+        self.impact_bar.setToolTip(self._tooltip_for("突变强度"))
+        self.score_bar.setToolTip(self._tooltip_for("综合评分"))
+        self.floor_label.setToolTip("显示当前底噪模式、底噪或直接门槛，以及麦克风当前 dBFS 电平。")
+        self.trigger_label.setToolTip(self._tooltip_for("冲击累积"))
+        self.trigger_total_label.setToolTip(self._tooltip_for("触发次数"))
+        self.runtime_label.setToolTip(self._tooltip_for("运行时长"))
+        self.log.setToolTip("显示校准、确认命中和触发播放等运行事件。")
+
+        self.start_button.setToolTip("开始监听麦克风。自动底噪模式下会先校准 5 秒。")
+        self.calibrate_button.setToolTip("重新校准当前环境底噪。仅自动监听底噪模式需要使用。")
+        self.stop_button.setToolTip("停止麦克风监听。")
+
     def _add_slider_row(
         self,
         layout: QGridLayout,
@@ -468,7 +543,7 @@ class CounterNoiseWindow(QMainWindow):
         right: str,
         value: QLabel,
     ) -> None:
-        layout.addWidget(QLabel(label), row, 0)
+        layout.addWidget(self._option_label(label), row, 0)
         layout.addWidget(QLabel(left), row, 1)
         layout.addWidget(slider, row, 2)
         layout.addWidget(QLabel(right), row, 3)
@@ -481,7 +556,7 @@ class CounterNoiseWindow(QMainWindow):
         return bar
 
     def _add_metric_row(self, layout: QGridLayout, row: int, col: int, label: str, bar: QProgressBar) -> None:
-        layout.addWidget(QLabel(label), row, col)
+        layout.addWidget(self._option_label(label), row, col)
         layout.addWidget(bar, row, col + 1)
 
     def _sync_labels(self) -> None:
