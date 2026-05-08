@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QProgressBar,
     QSlider,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -184,45 +185,61 @@ class CounterNoiseWindow(QMainWindow):
         self.sensitivity_slider, self.sensitivity_value = self._make_slider(1, 10, 2)
         self.confirm_slider, self.confirm_value = self._make_slider(1, 6, 4)
         self.cooldown_slider, self.cooldown_value = self._make_slider(1, 45, 12)
-        param_box, param_grid = self._section_grid()
-        param_grid.addWidget(self._group_title("基础参数"), 0, 0, 1, 5)
-        param_grid.addWidget(QLabel("监听目标"), 1, 0)
-        param_grid.addWidget(target_box, 1, 1, 1, 4)
-        self._add_slider_row(param_grid, 2, "灵敏度", "保守", self.sensitivity_slider, "敏感", self.sensitivity_value)
-        self._add_slider_row(param_grid, 3, "确认次数", "", self.confirm_slider, "", self.confirm_value)
-        self._add_slider_row(param_grid, 4, "冷却时间", "", self.cooldown_slider, "", self.cooldown_value)
-        param_grid.setColumnStretch(2, 1)
-        left.addWidget(param_box)
 
         self.floor_mode_combo = QComboBox()
         self.floor_mode_combo.addItems(["自动监听底噪", "手动底噪", "直接门槛"])
         self.floor_mode_combo.currentTextChanged.connect(self._sync_floor_controls)
         self.manual_floor_spin = self._make_db_spin(DEFAULT_MANUAL_FLOOR_DB)
         self.absolute_trigger_spin = self._make_db_spin(DEFAULT_ABSOLUTE_TRIGGER_DB)
-        floor_box, floor_grid = self._section_grid()
-        floor_grid.addWidget(self._group_title("底噪控制"), 0, 0, 1, 4)
-        floor_grid.addWidget(QLabel("模式"), 1, 0)
-        floor_grid.addWidget(self.floor_mode_combo, 1, 1, 1, 3)
-        floor_grid.addWidget(QLabel("手动底噪"), 2, 0)
-        floor_grid.addWidget(self.manual_floor_spin, 2, 1)
-        floor_grid.addWidget(QLabel("直接门槛"), 2, 2)
-        floor_grid.addWidget(self.absolute_trigger_spin, 2, 3)
-        floor_grid.setColumnStretch(1, 1)
-        floor_grid.setColumnStretch(3, 1)
-        left.addWidget(floor_box)
 
         self.above_db_slider, self.above_db_value = self._make_slider(12, 45, round(DEFAULT_REQUIRED_ABOVE_DB))
         self.low_ratio_slider, self.low_ratio_value = self._make_slider(5, 60, DEFAULT_LOW_RATIO_PERCENT)
         self.high_ratio_slider, self.high_ratio_value = self._make_slider(10, 80, DEFAULT_HIGH_RATIO_PERCENT)
         self.stable_blocks_slider, self.stable_blocks_value = self._make_slider(1, 8, DEFAULT_STABLE_BLOCKS)
-        advanced_box, advanced_grid = self._section_grid()
-        advanced_grid.addWidget(self._group_title("高级规则"), 0, 0, 1, 5)
-        self._add_slider_row(advanced_grid, 1, "分贝门槛", "低", self.above_db_slider, "高", self.above_db_value)
-        self._add_slider_row(advanced_grid, 2, "低频下限", "低", self.low_ratio_slider, "高", self.low_ratio_value)
-        self._add_slider_row(advanced_grid, 3, "高频上限", "少", self.high_ratio_slider, "多", self.high_ratio_value)
-        self._add_slider_row(advanced_grid, 4, "连续块数", "短", self.stable_blocks_slider, "长", self.stable_blocks_value)
+
+        config_tabs = QTabWidget()
+        config_tabs.setObjectName("configTabs")
+        basic_tab = QWidget()
+        basic_grid = QGridLayout(basic_tab)
+        basic_grid.setContentsMargins(12, 12, 12, 12)
+        basic_grid.setHorizontalSpacing(12)
+        basic_grid.setVerticalSpacing(10)
+        basic_grid.addWidget(QLabel("监听目标"), 0, 0)
+        basic_grid.addWidget(target_box, 0, 1, 1, 4)
+        self._add_slider_row(basic_grid, 1, "灵敏度", "保守", self.sensitivity_slider, "敏感", self.sensitivity_value)
+        self._add_slider_row(basic_grid, 2, "确认次数", "", self.confirm_slider, "", self.confirm_value)
+        self._add_slider_row(basic_grid, 3, "冷却时间", "", self.cooldown_slider, "", self.cooldown_value)
+        basic_grid.setColumnStretch(2, 1)
+
+        floor_tab = QWidget()
+        floor_grid = QGridLayout(floor_tab)
+        floor_grid.setContentsMargins(12, 12, 12, 12)
+        floor_grid.setHorizontalSpacing(12)
+        floor_grid.setVerticalSpacing(10)
+        floor_grid.addWidget(QLabel("模式"), 0, 0)
+        floor_grid.addWidget(self.floor_mode_combo, 0, 1, 1, 3)
+        floor_grid.addWidget(QLabel("手动底噪"), 1, 0)
+        floor_grid.addWidget(self.manual_floor_spin, 1, 1)
+        floor_grid.addWidget(QLabel("直接门槛"), 1, 2)
+        floor_grid.addWidget(self.absolute_trigger_spin, 1, 3)
+        floor_grid.setColumnStretch(1, 1)
+        floor_grid.setColumnStretch(3, 1)
+
+        advanced_tab = QWidget()
+        advanced_grid = QGridLayout(advanced_tab)
+        advanced_grid.setContentsMargins(12, 12, 12, 12)
+        advanced_grid.setHorizontalSpacing(12)
+        advanced_grid.setVerticalSpacing(10)
+        self._add_slider_row(advanced_grid, 0, "分贝门槛", "低", self.above_db_slider, "高", self.above_db_value)
+        self._add_slider_row(advanced_grid, 1, "低频下限", "低", self.low_ratio_slider, "高", self.low_ratio_value)
+        self._add_slider_row(advanced_grid, 2, "高频上限", "少", self.high_ratio_slider, "多", self.high_ratio_value)
+        self._add_slider_row(advanced_grid, 3, "连续块数", "短", self.stable_blocks_slider, "长", self.stable_blocks_value)
         advanced_grid.setColumnStretch(2, 1)
-        left.addWidget(advanced_box)
+
+        config_tabs.addTab(basic_tab, "基础")
+        config_tabs.addTab(floor_tab, "底噪")
+        config_tabs.addTab(advanced_tab, "高级")
+        left.addWidget(config_tabs, 1)
 
         controls = QHBoxLayout()
         controls.setSpacing(10)
@@ -236,7 +253,6 @@ class CounterNoiseWindow(QMainWindow):
         controls.addWidget(start_button)
         controls.addWidget(calibrate_button)
         controls.addWidget(stop_button)
-        left.addStretch(1)
         left.addLayout(controls)
 
         self.status_label = QLabel("就绪 - 选择音频文件后点击开始")
@@ -313,6 +329,25 @@ class CounterNoiseWindow(QMainWindow):
             QFrame#inlineBox {
                 background: transparent;
                 border: 0;
+            }
+            QTabWidget#configTabs::pane {
+                background: #f8f8f9;
+                border: 1px solid #e6e7eb;
+                border-radius: 8px;
+                top: -1px;
+            }
+            QTabWidget#configTabs QTabBar::tab {
+                background: #eef0f3;
+                border: 1px solid #dfe2e7;
+                border-bottom: 0;
+                border-top-left-radius: 7px;
+                border-top-right-radius: 7px;
+                padding: 8px 18px;
+                margin-right: 4px;
+            }
+            QTabWidget#configTabs QTabBar::tab:selected {
+                background: #ffffff;
+                color: #111111;
             }
             QCheckBox {
                 background: transparent;
