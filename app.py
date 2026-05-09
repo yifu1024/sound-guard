@@ -7,10 +7,11 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTime, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QTabWidget,
     QTextEdit,
+    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -186,6 +188,16 @@ class CounterNoiseWindow(QMainWindow):
         self.sensitivity_slider, self.sensitivity_value = self._make_slider(1, 10, 2)
         self.confirm_slider, self.confirm_value = self._make_slider(1, 6, 4)
         self.cooldown_slider, self.cooldown_value = self._make_slider(1, 45, 12)
+        self.schedule_check = QCheckBox("只在时间段内生效")
+        self.schedule_check.toggled.connect(self._sync_schedule_controls)
+        self.schedule_start_edit = QTimeEdit()
+        self.schedule_start_edit.setDisplayFormat("HH:mm")
+        self.schedule_start_edit.setTime(QTime.fromString("22:00", "HH:mm"))
+        self.schedule_start_edit.timeChanged.connect(lambda _time: self._sync_schedule_controls())
+        self.schedule_end_edit = QTimeEdit()
+        self.schedule_end_edit.setDisplayFormat("HH:mm")
+        self.schedule_end_edit.setTime(QTime.fromString("07:00", "HH:mm"))
+        self.schedule_end_edit.timeChanged.connect(lambda _time: self._sync_schedule_controls())
 
         self.floor_mode_combo = QComboBox()
         self.floor_mode_combo.addItems(["自动监听底噪", "手动底噪", "直接门槛"])
@@ -210,6 +222,12 @@ class CounterNoiseWindow(QMainWindow):
         self._add_slider_row(basic_grid, 1, "灵敏度", "保守", self.sensitivity_slider, "敏感", self.sensitivity_value)
         self._add_slider_row(basic_grid, 2, "确认次数", "", self.confirm_slider, "", self.confirm_value)
         self._add_slider_row(basic_grid, 3, "冷却时间", "", self.cooldown_slider, "", self.cooldown_value)
+        basic_grid.addWidget(self._option_label("生效时间"), 4, 0)
+        basic_grid.addWidget(self.schedule_check, 4, 1, 1, 4)
+        basic_grid.addWidget(QLabel("开始"), 5, 1)
+        basic_grid.addWidget(self.schedule_start_edit, 5, 2)
+        basic_grid.addWidget(QLabel("结束"), 5, 3)
+        basic_grid.addWidget(self.schedule_end_edit, 5, 4)
         basic_grid.setColumnStretch(2, 1)
 
         floor_tab = QWidget()
@@ -312,6 +330,7 @@ class CounterNoiseWindow(QMainWindow):
         self._install_tooltips()
         self._sync_labels()
         self._sync_floor_controls()
+        self._sync_schedule_controls()
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -441,6 +460,7 @@ class CounterNoiseWindow(QMainWindow):
             "灵敏度": "总调节旋钮。越高越容易触发，越低越保守；它会适度放宽音量和评分门槛。",
             "确认次数": "4 秒窗口内需要累计多少次有效命中才真正播放反击音频。",
             "冷却时间": "触发播放后暂停再次触发的秒数，用来避免连续播放。",
+            "生效时间": "勾选后，只在指定时间段内累计确认和触发。结束时间早于开始时间时，会按跨午夜处理。",
             "模式": "选择音量基准的来源：自动校准底噪、手动输入底噪，或直接使用绝对触发门槛。",
             "手动底噪": "手动底噪模式下使用的环境基准。dBFS 通常是负数，例如 -55 dB。",
             "直接门槛": "直接门槛模式下使用的绝对音量门槛。当前音量达到该值后再判断目标特征。",
@@ -507,6 +527,9 @@ class CounterNoiseWindow(QMainWindow):
         self.sensitivity_slider.setToolTip(self._tooltip_for("灵敏度"))
         self.confirm_slider.setToolTip(self._tooltip_for("确认次数"))
         self.cooldown_slider.setToolTip(self._tooltip_for("冷却时间"))
+        self.schedule_check.setToolTip(self._tooltip_for("生效时间"))
+        self.schedule_start_edit.setToolTip("生效时间段的开始时间。")
+        self.schedule_end_edit.setToolTip("生效时间段的结束时间；早于开始时间时表示跨午夜。")
 
         self.floor_mode_combo.setToolTip(self._tooltip_for("模式"))
         self.manual_floor_spin.setToolTip(self._tooltip_for("手动底噪"))
@@ -584,6 +607,15 @@ class CounterNoiseWindow(QMainWindow):
     def _on_floor_value_changed(self) -> None:
         if self.floor_mode_combo.currentText() == "手动底噪":
             self.noise_floor_db = float(self.manual_floor_spin.value())
+        self._update_ui()
+
+    def _sync_schedule_controls(self) -> None:
+        enabled = self.schedule_check.isChecked()
+        self.schedule_start_edit.setEnabled(enabled)
+        self.schedule_end_edit.setEnabled(enabled)
+        self.event_times.clear()
+        self.event_details.clear()
+        self.clear_block_counts.clear()
         self._update_ui()
 
     def _begin_calibration(self) -> None:
@@ -908,6 +940,11 @@ class CounterNoiseWindow(QMainWindow):
 
     def _maybe_register_hit(self, metrics: NoiseMetrics) -> None:
         now = time.monotonic()
+        if not self._is_schedule_active():
+            self.event_times.clear()
+            self.event_details.clear()
+            self.clear_block_counts.clear()
+            return
         sensitivity = self.sensitivity_slider.value()
         targets = self._selected_targets()
         if not targets:
@@ -946,6 +983,21 @@ class CounterNoiseWindow(QMainWindow):
                 f"连续块数 {self.stable_blocks_slider.value()}块，依据: {details}"
             )
             threading.Thread(target=self._play_audio, daemon=True).start()
+
+    def _is_schedule_active(self) -> bool:
+        if not self.schedule_check.isChecked():
+            return True
+        now = datetime.now()
+        now_minutes = now.hour * 60 + now.minute
+        start = self.schedule_start_edit.time()
+        end = self.schedule_end_edit.time()
+        start_minutes = start.hour() * 60 + start.minute()
+        end_minutes = end.hour() * 60 + end.minute()
+        if start_minutes == end_minutes:
+            return True
+        if start_minutes < end_minutes:
+            return start_minutes <= now_minutes < end_minutes
+        return now_minutes >= start_minutes or now_minutes < end_minutes
 
     def _selected_targets(self) -> list[str]:
         targets = []
@@ -1091,10 +1143,12 @@ class CounterNoiseWindow(QMainWindow):
             if time.monotonic() < self.calibrating_until:
                 left = max(1, math.ceil(self.calibrating_until - time.monotonic()))
                 self.status_label.setText(f"正在校准底噪 - {left}秒")
+            elif not self._is_schedule_active():
+                self.status_label.setText(f"等待生效时间 - {self._schedule_text()}")
             elif self.last_fire_at and time.monotonic() - self.last_fire_at < self.cooldown_slider.value():
                 left = max(0, self.cooldown_slider.value() - int(time.monotonic() - self.last_fire_at))
                 self.status_label.setText(f"冷却中 - {left}秒")
-            elif self.status_label.text().startswith(("冷却中", "已触发")):
+            elif self.status_label.text().startswith(("冷却中", "已触发", "等待生效时间")):
                 self.status_label.setText("监听中")
 
     def _current_target_score(self) -> float:
@@ -1114,11 +1168,20 @@ class CounterNoiseWindow(QMainWindow):
 
     def _level_status_text(self) -> str:
         mode = self.floor_mode_combo.currentText()
+        schedule = f"    时间: {self._schedule_text()}" if self.schedule_check.isChecked() else ""
         if mode == "直接门槛":
-            return f"模式: 直接门槛    门槛: {self._absolute_gate_db():.1f} dB    当前: {self.metrics.rms_db:.1f} dB"
+            return f"模式: 直接门槛    门槛: {self._absolute_gate_db():.1f} dB    当前: {self.metrics.rms_db:.1f} dB{schedule}"
         if mode == "手动底噪":
-            return f"模式: 手动底噪    底噪: {self.noise_floor_db:.1f} dB    当前: {self.metrics.rms_db:.1f} dB"
-        return f"模式: 自动底噪    底噪: {self.noise_floor_db:.1f} dB    当前: {self.metrics.rms_db:.1f} dB"
+            return f"模式: 手动底噪    底噪: {self.noise_floor_db:.1f} dB    当前: {self.metrics.rms_db:.1f} dB{schedule}"
+        return f"模式: 自动底噪    底噪: {self.noise_floor_db:.1f} dB    当前: {self.metrics.rms_db:.1f} dB{schedule}"
+
+    def _schedule_text(self) -> str:
+        if not self.schedule_check.isChecked():
+            return "全天"
+        start = self.schedule_start_edit.time().toString("HH:mm")
+        end = self.schedule_end_edit.time().toString("HH:mm")
+        suffix = " (跨午夜)" if self.schedule_start_edit.time() > self.schedule_end_edit.time() else ""
+        return f"{start}-{end}{suffix}"
 
     def _log(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
